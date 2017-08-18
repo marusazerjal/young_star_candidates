@@ -3,18 +3,18 @@ import math
 import pickle
 import matplotlib.pyplot as plt
 
-from astropy.coordinates import SkyCoord
-from astropy import units as u
-
 # Convergence point
 # This is solar apex; replace it with young stars
+#~ from astropy.coordinates import SkyCoord
+#~ from astropy import units as u
 #~ c = SkyCoord(l=50.2*u.degree, b=24.7*u.degree, frame='galactic')
 #~ RA_CP=c.icrs.ra.value
 #~ DEC_CP=c.icrs.dec.value
 
+# Convergence point coordinates
+# This is Solar apex:
 RA_CP=270.0
 DEC_CP=30.0
-DEC_CP=0.0
 
 # Read the data
 pkl_file = open('gaia_2mass_for_funnelweb.pkl', 'rb')
@@ -41,20 +41,16 @@ def determine_theta(alpha_cp=None, delta_cp=None, alpha=None, delta=None):
 	dcp=np.deg2rad(delta_cp)
 	acp=np.deg2rad(alpha_cp)
 	
-	# Angular distance A between the star and convergence point CP
+	# Angular distance A between the star and convergence point CP (spherical cosine law)
 	cos_A = np.sin(dcp)*np.sin(d) + np.cos(dcp)*np.cos(d)*np.cos(acp-a)
 	sin_A = np.sqrt(1.0-cos_A**2)
 	
 	# Spherical triangle with the following vertices: north celestial pole, a star (alpha, delta) and convergence point (alpha_cp, delta_cp)
 	cos_theta = (np.sin(dcp) - cos_A*np.sin(d)) / (sin_A*np.cos(d))
-	theta=np.arccos(cos_theta)
-	theta=np.rad2deg(theta)
-
 	
+	# The same spherical triangle, sine law
 	sin_theta=np.sin(acp-a)/sin_A*np.cos(dcp) # TODO: np.sin(acp-a) sign???
-	theta2=np.arcsin(sin_theta)
-	theta2=np.rad2deg(theta2)
-	
+
 	theta = np.rad2deg(math.atan2(sin_theta, cos_theta))
 	
 	#~ print (cos_theta, sin_theta, theta, theta2, 180.0-theta2, np.rad2deg(math.atan2(sin_theta, cos_theta)))
@@ -102,7 +98,15 @@ for x in d:
 	pm_parallel=rotated_vector[0]
 	pm_perp=rotated_vector[1]
 	
-	result.append([pm_parallel, pm_perp, x['ra'], x['de']])
+	pm_parallel /= np.sin(np.deg2rad(theta))
+	
+	# Reduced proper motions
+	# 1e-3: convert from mas/yr to arcsec/yr
+	gmag=x['phot_g_mean_mag']
+	H_parallel = gmag+5.0+5.0*np.log10(pm_parallel*1e-3)
+	H_perp = gmag+5.0+5.0*np.log10(pm_perp*1e-3)
+	
+	result.append([pm_parallel, pm_perp, x['ra'], x['de'], H_parallel, H_perp, gmag-x['k_m']])
 result=np.array(sorted(result, key=lambda x: x[0]))
 
 amp=100
@@ -150,5 +154,22 @@ ax.set_xlabel('pm perp [mas/yr]')
 ax.set_ylabel('pm parallel [mas/yr]')
 ax.axhline(y=0, c='k')
 ax.axvline(x=0, c='k')
+
+# H_parallel vs G-K
+fig=plt.figure()
+ax=fig.add_subplot(121)
+cb=ax.scatter(result[:,6], result[:,4], s=5)
+ax.set_xlabel('G-K')
+ax.set_ylabel('H parallel')
+ax.set_xlim(-1, 5)
+ax.set_ylim(20, -15)
+
+# H_perp vs G-K
+ax=fig.add_subplot(122)
+cb=ax.scatter(result[:,6], result[:,5], s=5)
+ax.set_xlabel('G-K')
+ax.set_ylabel('H perpendicular')
+ax.set_xlim(-1, 5)
+ax.set_ylim(20, -15)
 
 plt.show()

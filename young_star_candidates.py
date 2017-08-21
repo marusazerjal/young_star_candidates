@@ -1,6 +1,6 @@
 import numpy as np
 import math
-import pickle
+import random
 import matplotlib.pyplot as plt
 
 # Convergence point
@@ -16,11 +16,16 @@ import matplotlib.pyplot as plt
 RA_CP=270.0
 DEC_CP=30.0
 
-# Read the data
-pkl_file = open('gaia_2mass_for_funnelweb.pkl', 'rb')
-d = pickle.load(pkl_file)
-pkl_file.close()
-
+def distance_between_two_points_in_the_sky(alpha1=None, delta1=None, alpha2=None, delta2=None):
+	a1=np.deg2rad(alpha1)
+	d1=np.deg2rad(delta1)
+	a2=np.deg2rad(alpha2)
+	d2=np.deg2rad(delta2)
+	
+	cos_A = np.sin(d1)*np.sin(d2) + np.cos(d1)*np.cos(d2)*np.cos(a1-a2)
+	A=np.arccos(cos_A) # [0, 180] in radians
+	#~ A=np.rad2deg(A)
+	return A
 
 def determine_theta(alpha_cp=None, delta_cp=None, alpha=None, delta=None):
 	""" Determine angle between equatorial system and system alligned with direction of motion of nearby young stars
@@ -49,7 +54,46 @@ def determine_theta(alpha_cp=None, delta_cp=None, alpha=None, delta=None):
 	cos_theta = (np.sin(dcp) - cos_A*np.sin(d)) / (sin_A*np.cos(d))
 	
 	# The same spherical triangle, sine law
+	#~ sin_theta=np.sin(acp-a)/sin_A*np.cos(dcp) # TODO: np.sin(acp-a) sign???
 	sin_theta=np.sin(acp-a)/sin_A*np.cos(dcp) # TODO: np.sin(acp-a) sign???
+
+	theta = np.rad2deg(math.atan2(sin_theta, cos_theta))
+	
+	#~ print (cos_theta, sin_theta, theta, theta2, 180.0-theta2, np.rad2deg(math.atan2(sin_theta, cos_theta)))
+
+	return theta
+def determine_theta2(alpha_cp=None, delta_cp=None, alpha=None, delta=None):
+	""" Determine angle between equatorial system and system alligned with direction of motion of nearby young stars
+	
+	Args:
+	alpha_cp: [deg] right ascension of convergence point
+	delta_cp: [deg] declination of convergence point
+	alpha: [deg] right ascension of a star
+	delta: [deg] declination of a star
+	
+	Return: theta [deg]: angle between the two systems
+	"""
+	
+	# Distances between the points
+	# Distance between CP and a star
+	d1=distance_between_two_points_in_the_sky(alpha1=RA_CP, delta1=DEC_CP, alpha2=alpha, delta2=delta)
+	# Distance between CP and North pole
+	d2=distance_between_two_points_in_the_sky(alpha1=RA_CP, delta1=DEC_CP, alpha2=RA_CP, delta2=90)
+	# Distance between a star and North pole
+	d3=distance_between_two_points_in_the_sky(alpha1=alpha, delta1=delta, alpha2=alpha, delta2=90)
+	
+	cos_theta=(np.cos(d2)-np.cos(d1)*np.cos(d3)) / (np.sin(d1)*np.sin(d3))
+	
+	# Convert to radians
+	d=np.deg2rad(delta)
+	a=np.deg2rad(alpha)
+	
+	dcp=np.deg2rad(delta_cp)
+	acp=np.deg2rad(alpha_cp)
+	
+	
+	# The same spherical triangle, sine law
+	sin_theta=np.sin(acp-a)/np.sin(d1)*np.sin(d2) # TODO: np.sin(acp-a) sign???
 
 	theta = np.rad2deg(math.atan2(sin_theta, cos_theta))
 	
@@ -75,7 +119,6 @@ def rotate_vector(vec=None, theta=None):
 	theta: rotation angle [deg]
 	
 	return: rotated vector vec2
-	
 	"""
 
 	theta=np.deg2rad(theta)
@@ -83,93 +126,64 @@ def rotate_vector(vec=None, theta=None):
 	vec2=R.dot(vec)
 	return vec2
 
-result=[]
-for x in d:
-	# pmra = mu_alpha* (meaning that cos(delta) has already been taken into account)
+
+### TESTS ##################
+random.seed(a=9)
+
+def test_theta_with_random_points_all_over_the_sky():
+	RA_CP=270.0
+	DEC_CP=30.0
+
+	N=50000
+
+	result=[]
+	for x in range(N):
+		# Random point in the sky
+		alpha=random.uniform(0, 360)
+		delta=random.uniform(-90, 90)
+		
+		# Determine angle theta between the two coordinate systems
+		theta=determine_theta(alpha_cp=RA_CP, delta_cp=DEC_CP, alpha=alpha, delta=delta)
+		
+		result.append([alpha, delta, theta])
+
+	result=np.array(result)
+
+	# Theta: distribution in the sky
+	fig=plt.figure()
+	ax=fig.add_subplot(211)
+	cb=ax.scatter(result[:,0], result[:,1], c=result[:,2], s=5)
+	c=plt.colorbar(cb)
+	c.set_label('theta')
+	ax.set_xlabel('RA')
+	ax.set_ylabel('DEC')
+
+	ax=fig.add_subplot(212)
+	cb=ax.scatter(result[:,0], result[:,1], c=(np.cos([np.deg2rad(x) for x in result[:,2]])), s=5)
+	c=plt.colorbar(cb)
+	c.set_label('cos(theta)')
+	ax.set_xlabel('RA')
+	ax.set_ylabel('DEC')
 	
-	# Determine angle theta between the two coordinate systems
-	theta=determine_theta(alpha_cp=RA_CP, delta_cp=DEC_CP, alpha=x['ra'], delta=x['de'])
+	# Points at RA approx RA_CP to see if they have values 0 or +/- 180 or something else
+	test=result[np.abs(result[:,0]-RA_CP)<4,:]
+	#~ test=result[np.abs(result[:,0]-300)<0.5,:]
+	fig=plt.figure()
+	ax=fig.add_subplot(111)
+	ax.scatter(test[:,1], test[:,2])
+	ax.set_xlabel('Dec')
+	ax.set_ylabel('Theta [deg]')
 	
-	# Method 1: Components in a new coordinate system
-	#~ pm_parallel, pm_perp = components_in_a_new_system(theta=theta, pmRA=x['pmra'], pmDE=x['pmdec'])
+	# Points at constant DEC
+	test=result[np.abs(result[:,1]-0)<0.5,:]
+	fig=plt.figure()
+	ax=fig.add_subplot(111)
+	ax.scatter(test[:,0], test[:,2])
+	ax.set_xlabel('RA')
+	ax.set_ylabel('Theta [deg]')
 	
-	# Method 2: Rotate vector for angle theta (rotation is done for -theta)
-	rotated_vector=rotate_vector(vec=np.array([x['pmra'], x['pmdec']]), theta=theta)
-	pm_parallel=rotated_vector[0]
-	pm_perp=rotated_vector[1]
-	
-	pm_parallel /= np.sin(np.deg2rad(theta))
-	
-	# Reduced proper motions
-	# 1e-3: convert from mas/yr to arcsec/yr
-	gmag=x['phot_g_mean_mag']
-	H_parallel = gmag+5.0+5.0*np.log10(pm_parallel*1e-3)
-	H_perp = gmag+5.0+5.0*np.log10(pm_perp*1e-3)
-	
-	result.append([pm_parallel, pm_perp, x['ra'], x['de'], H_parallel, H_perp, gmag-x['k_m']])
-result=np.array(sorted(result, key=lambda x: x[0]))
+	plt.show()
 
-amp=100
 
-# Parallel component: distribution in the sky
-fig=plt.figure()
-ax=fig.add_subplot(211)
-cb=ax.scatter(result[:,2], result[:,3], c=result[:,0], vmin=-amp, vmax=amp, s=5)
-c=plt.colorbar(cb)
-c.set_label('pm parallel [mas/yr]')
-ax.set_xlabel('RA')
-ax.set_ylabel('DEC')
-
-result=np.array(sorted(result, key=lambda x: x[0], reverse=True))
-ax=fig.add_subplot(212)
-cb=ax.scatter(result[:,2], result[:,3], c=result[:,0], vmin=-amp, vmax=amp, s=5)
-c=plt.colorbar(cb)
-c.set_label('pm parallel [mas/yr]')
-ax.set_xlabel('RA')
-ax.set_ylabel('DEC')
-
-# Perp component
-result=np.array(sorted(result, key=lambda x: x[1]))
-fig=plt.figure()
-ax=fig.add_subplot(211)
-cb=ax.scatter(result[:,2], result[:,3], c=result[:,1], vmin=-amp, vmax=amp, s=5)
-c=plt.colorbar(cb)
-c.set_label('pm perp [mas/yr]')
-ax.set_xlabel('RA')
-ax.set_ylabel('DEC')
-
-result=np.array(sorted(result, key=lambda x: x[1], reverse=True))
-ax=fig.add_subplot(212)
-cb=ax.scatter(result[:,2], result[:,3], c=result[:,1], vmin=-amp, vmax=amp, s=5)
-c=plt.colorbar(cb)
-c.set_label('pm perp [mas/yr]')
-ax.set_xlabel('RA')
-ax.set_ylabel('DEC')
-
-# PM parallel vs PM perpendicular
-fig=plt.figure()
-ax=fig.add_subplot(111)
-cb=ax.scatter(result[:,1], result[:,0], s=5)
-ax.set_xlabel('pm perp [mas/yr]')
-ax.set_ylabel('pm parallel [mas/yr]')
-ax.axhline(y=0, c='k')
-ax.axvline(x=0, c='k')
-
-# H_parallel vs G-K
-fig=plt.figure()
-ax=fig.add_subplot(121)
-cb=ax.scatter(result[:,6], result[:,4], s=5)
-ax.set_xlabel('G-K')
-ax.set_ylabel('H parallel')
-ax.set_xlim(-1, 5)
-ax.set_ylim(20, -15)
-
-# H_perp vs G-K
-ax=fig.add_subplot(122)
-cb=ax.scatter(result[:,6], result[:,5], s=5)
-ax.set_xlabel('G-K')
-ax.set_ylabel('H perpendicular')
-ax.set_xlim(-1, 5)
-ax.set_ylim(20, -15)
-
-plt.show()
+if __name__ == "__main__":
+	test_theta_with_random_points_all_over_the_sky()

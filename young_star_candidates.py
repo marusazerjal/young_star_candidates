@@ -1,3 +1,5 @@
+# TODO: make code more clear
+
 import numpy as np
 import math
 import random
